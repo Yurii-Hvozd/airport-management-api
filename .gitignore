@@ -6,3 +6,4 @@ ENV/
 **/__pycache__/
 *.py[cod]
 *$py.class
+.airport_test_data.json
