@@ -17,7 +17,7 @@ class Route(models.Model):
     distance = models.IntegerField()
 
     def __str__(self):
-        return f"{self.source.closest_big_city} -> {self.destination.closest_big_city}"
+        return f"{self.source.name} -> {self.destination.name}"
 
 class AirplaneType(models.Model):
     name = models.CharField(max_length=200)
