@@ -4,7 +4,8 @@ from rest_framework.filters import SearchFilter
 from airport.models import Airport, Route, Airplane, AirplaneType, Crew, Flight, Order, Ticket
 from airport.serializers import AirportSerializer, RouteSerializer, AirplaneSerializer, AirplaneTypeSerializer, \
     CrewSerializer, FlightSerializer, OrderSerializer, TicketSerializer, RouteListSerializer, RouteDetailSerializer, \
-    FlightListSerializer, FlightDetailSerializer, AirplaneListSerializer, TicketDetailSerializer, OrderDetailSerializer
+    FlightListSerializer, FlightDetailSerializer, AirplaneListSerializer, TicketDetailSerializer, OrderDetailSerializer, \
+    OrderListSerializer
 from rest_framework import viewsets, mixins
 
 class AirportViewSet(viewsets.ModelViewSet):
@@ -138,7 +139,7 @@ class FlightViewSet(viewsets.ModelViewSet):
                 "airplane__airplane_type"
             ).prefetch_related("crew", "tickets").annotate(
                 tickets_available=(F("airplane__rows") * F("airplane__seats_in_row")) - Count("tickets"),
-            )
+            ).order_by("id")
 
         if self.action == "retrieve":
             return queryset.select_related(
@@ -175,7 +176,7 @@ class OrderViewSet(viewsets.ModelViewSet):
 
     def get_serializer_class(self):
         if self.action == "list":
-            return OrderSerializer
+            return OrderListSerializer
         elif self.action == "retrieve":
             return OrderDetailSerializer
         return OrderSerializer

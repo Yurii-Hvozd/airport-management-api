@@ -114,6 +114,8 @@ class Order(models.Model):
     def __str__(self):
         return f"Order {self.id} by {self.user.email} ({self.created_at.strftime('%Y-%m-%d %H:%M')})"
 
+    class Meta:
+        ordering = ["-id"]
 
 
 class Ticket(models.Model):

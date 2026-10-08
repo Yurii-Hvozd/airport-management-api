@@ -328,6 +328,20 @@ class OrderSerializer(serializers.ModelSerializer):
         return order
 
 
+class TicketListSerializer(serializers.ModelSerializer):
+    flight = CompactFlightSerializer(read_only=True)
+    class Meta:
+        model = Ticket
+        fields = ("id", "row", "seat", "flight")
+
+class OrderListSerializer(serializers.ModelSerializer):
+    passenger_name = serializers.CharField(source="user.get_full_name", read_only=True)
+    tickets = TicketListSerializer(many=True, read_only=True)
+    class Meta:
+        model = Order
+        fields = ("id", "passenger_name", "created_at", "tickets")
+
+
 class OrderTicketDetailSerializer(serializers.ModelSerializer):
     flight = FlightListSerializer()
 
