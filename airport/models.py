@@ -1,3 +1,6 @@
+from django.utils import timezone
+from datetime import timedelta
+from django.core.validators import MinValueValidator
 from django.db import models
 from django.core.exceptions import ValidationError
 
@@ -14,10 +17,24 @@ class Airport(models.Model):
 class Route(models.Model):
     source = models.ForeignKey(Airport, on_delete=models.CASCADE, related_name='routes_from')
     destination = models.ForeignKey(Airport, on_delete=models.CASCADE, related_name='routes_to')
-    distance = models.IntegerField()
+    distance = models.PositiveIntegerField()
 
     def __str__(self):
         return f"{self.source.name} -> {self.destination.name}"
+
+    def clean(self):
+        if self.source == self.destination:
+            raise ValidationError({
+                "destination": "Source and destination airports cannot be the same."
+            })
+        if self.distance <= 0:
+            raise ValidationError({
+                "distance": "Distance must be greater than 0."
+            })
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
 
 class AirplaneType(models.Model):
     name = models.CharField(max_length=200)
@@ -28,8 +45,8 @@ class AirplaneType(models.Model):
 
 class Airplane(models.Model):
     name = models.CharField(max_length=200)
-    rows = models.IntegerField()
-    seats_in_row = models.IntegerField()
+    rows = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    seats_in_row = models.PositiveIntegerField(validators=[MinValueValidator(1)])
     airplane_type = models.ForeignKey(AirplaneType, on_delete=models.CASCADE)
 
     @property
@@ -41,7 +58,7 @@ class Airplane(models.Model):
 
 
 class Crew(models.Model):
-    first_name = models.CharField(max_length=200)
+    first_name = models.CharField(max_length=200, )
     last_name = models.CharField(max_length=200)
 
     def __str__(self):
@@ -57,11 +74,31 @@ class Flight(models.Model):
     def clean(self):
         super().clean()
 
+        now = timezone.now()
+
+        if self.departure_time and self.departure_time < now:
+            raise ValidationError({"departure_time": "Flight departure time cannot be in the past."})
+
         if self.departure_time and self.arrival_time:
             if self.arrival_time <= self.departure_time:
-                raise ValidationError({
-                    'arrival_time': "Arrival time must be later than departure time."
-                })
+                raise ValidationError({"arrival_time": "Arrival time must be later than departure time."})
+
+            if self.airplane:
+                buffer = timedelta(minutes=30)
+
+                overlapping_flights = Flight.objects.filter(
+                    airplane=self.airplane,
+                    departure_time__lt=self.arrival_time + buffer,
+                    arrival_time__gt=self.departure_time - buffer
+                )
+
+                if self.pk:
+                    overlapping_flights = overlapping_flights.exclude(pk=self.pk)
+
+                if overlapping_flights.exists():
+                    raise ValidationError({
+                        "airplane": "This airplane is already in flight or undergoing 30-minute maintenance during this time."
+                    })
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -80,8 +117,8 @@ class Order(models.Model):
 
 
 class Ticket(models.Model):
-    row = models.IntegerField()
-    seat = models.IntegerField()
+    row = models.IntegerField(validators=[MinValueValidator(1)])
+    seat = models.IntegerField(validators=[MinValueValidator(1)])
     flight = models.ForeignKey(Flight, on_delete=models.CASCADE, related_name='tickets')
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='tickets')
 
@@ -98,16 +135,30 @@ class Ticket(models.Model):
             raise error_to_raise({"seat": f"Seat number must be in range [1, {airplane.seats_in_row}]."})
 
     def clean(self):
+        super().clean()
+
         if self.flight and hasattr(self.flight, 'airplane'):
+            airplane = self.flight.airplane
+
             Ticket.validate_ticket(
                 self.row,
                 self.seat,
-                self.flight.airplane,
-                ValidationError)
+                airplane,
+                ValidationError
+            )
+
+            existing_tickets_count = self.flight.tickets.exclude(pk=self.pk).count()
+            if existing_tickets_count >= airplane.capacity:
+                raise ValidationError({"flight": "All seats for this flight are already sold out."})
+
+            if self.flight.departure_time < timezone.now():
+                raise ValidationError({"flight": "Cannot purchase a ticket for a flight that has already departed."})
+
 
     def save(self, *args, **kwargs):
         self.full_clean()
         return super().save(*args, **kwargs)
+
 
     def __str__(self):
         return f"Ticket {self.id}: Flight {self.flight_id} (Row: {self.row}, Seat: {self.seat})"

@@ -1,8 +1,13 @@
+from datetime import timedelta
+from copy import copy
+from django.core.exceptions import ValidationError
+from django.utils import timezone
 from django.db import transaction
-from rest_framework import serializers, viewsets
+from rest_framework import serializers
+from rest_framework.validators import UniqueTogetherValidator
 
 from airport.models import Airport, Route, AirplaneType, Airplane, Crew, Flight, Order, Ticket
-from user.serializers import UserSerializer
+
 
 
 class AirportSerializer(serializers.ModelSerializer):
@@ -15,6 +20,27 @@ class RouteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Route
         fields = ("id", "source", "destination", "distance")
+
+    def validate(self, attrs):
+        # Отримуємо значення з attrs (це словник з валідованими даними, які прийшли від користувача)
+        source = attrs.get("source")
+        destination = attrs.get("destination")
+        distance = attrs.get("distance")
+
+        # 1. Перевірка на збіг аеропортів
+        if source and destination and source == destination:
+            raise serializers.ValidationError({
+                "destination": "Source and destination airports cannot be the same."
+            })
+
+        # 2. Перевірка дистанції маршруту
+        if distance is not None and distance <= 0:
+            raise serializers.ValidationError({
+                "distance": "Distance must be greater than 0."
+            })
+
+        return attrs
+
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -88,7 +114,75 @@ class FlightSerializer(serializers.ModelSerializer):
         model = Flight
         fields = ("id", "route", "airplane", "departure_time", "arrival_time", "crew")
 
-    
+    def validate(self, attrs):
+        instance_exists = self.instance is not None
+
+        departure_time = attrs.get(
+            "departure_time",
+            self.instance.departure_time if instance_exists else None,
+        )
+        arrival_time = attrs.get(
+            "arrival_time",
+            self.instance.arrival_time if instance_exists else None,
+        )
+
+
+        if "crew" in attrs:
+            crew_list = attrs.get("crew", [])
+        elif instance_exists:
+            crew_list = list(self.instance.crew.all())
+        else:
+            crew_list = []
+
+
+        attrs_copy = attrs.copy()
+        attrs_copy.pop("crew", None)
+
+        if instance_exists:
+
+
+
+            test_instance = copy(self.instance)
+            for field, value in attrs_copy.items():
+                setattr(test_instance, field, value)
+        else:
+            test_instance = Flight(**attrs_copy)
+
+        try:
+            test_instance.clean()
+        except ValidationError as e:
+            raise serializers.ValidationError(
+                e.message_dict
+                if hasattr(e, "message_dict")
+                else {"non_field_errors": str(e)}
+            )
+
+        buffer = timedelta(minutes=30)
+
+        if departure_time and arrival_time and crew_list:
+            overlapping_flights = Flight.objects.filter(
+                departure_time__lt=arrival_time + buffer,
+                arrival_time__gt=departure_time - buffer,
+            )
+
+            if instance_exists:
+                overlapping_flights = overlapping_flights.exclude(
+                    pk=self.instance.pk
+                )
+
+            conflicting_flights = overlapping_flights.filter(
+                crew__in=crew_list
+            ).distinct()
+
+            if conflicting_flights.exists():
+                raise serializers.ValidationError(
+                    {
+                        "crew": "One or more crew members are already scheduled for another flight or are in their 30-minute rest window during this time."
+                    }
+                )
+
+        return attrs
+
 
 class FlightListSerializer(serializers.ModelSerializer):
     route_source = serializers.CharField(source="route.source.name", read_only=True)
@@ -131,6 +225,8 @@ class TicketSerializer(serializers.ModelSerializer):
         read_only_fields = ("order", )
 
 
+
+
 class TicketDetailSerializer(serializers.ModelSerializer):
     flight = FlightListSerializer()
     order_id = serializers.IntegerField(source="order.id", read_only=True)
@@ -144,7 +240,7 @@ class TicketDetailSerializer(serializers.ModelSerializer):
 
 
 class OrderTicketListSerializer(serializers.ModelSerializer):
-    flight = CompactFlightSerializer(read_only=True) # Вкладаємо компактний рейс
+    flight = CompactFlightSerializer(read_only=True)
 
     class Meta:
         model = Ticket
@@ -155,6 +251,47 @@ class TicketCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Ticket
         fields = ("row", "seat", "flight")
+        validators = [
+            UniqueTogetherValidator(
+                queryset=Ticket.objects.all(),
+                fields=("flight", "row", "seat"),
+            )
+        ]
+
+    def validate(self, attrs):
+        flight = attrs["flight"]
+        airplane = flight.airplane
+
+
+        if not (1 <= attrs["row"] <= airplane.rows):
+            raise serializers.ValidationError({
+                "row": f"Row number must be in range [1, {airplane.rows}]."
+            })
+
+
+        if not (1 <= attrs["seat"] <= airplane.seats_in_row):
+            raise serializers.ValidationError({
+                "seat": f"Seat number must be in range [1, {airplane.seats_in_row}]."
+            })
+
+
+        current_ticket_pk = self.instance.pk if self.instance else None
+
+
+        existing_tickets_count = flight.tickets.exclude(pk=current_ticket_pk).count()
+        if existing_tickets_count >= airplane.capacity:
+            raise serializers.ValidationError({
+                "flight": "All seats for this flight are already sold out."
+            })
+
+
+        if flight.departure_time < timezone.now():
+            raise serializers.ValidationError({
+                "flight": "Cannot purchase a ticket for a flight that has already departed."
+            })
+
+        return attrs
+
 
 class OrderSerializer(serializers.ModelSerializer):
     passenger_name = serializers.CharField(source="user.get_full_name", read_only=True)
@@ -164,14 +301,18 @@ class OrderSerializer(serializers.ModelSerializer):
         model = Order
         fields = ("id", "passenger_name" ,"created_at", "tickets")
 
+
     @transaction.atomic
     def create(self, validated_data):
         tickets_data = validated_data.pop("tickets", [])
         order = Order.objects.create(**validated_data)
-        for ticket_data in tickets_data:
-            Ticket.objects.create(order=order, **ticket_data)
-        return order
+        try:
+            for ticket_data in tickets_data:
+                Ticket.objects.create(order=order, **ticket_data)
+        except ValidationError as e:
+            raise serializers.ValidationError(e.message_dict)
 
+        return order
 
 
 class OrderTicketDetailSerializer(serializers.ModelSerializer):
