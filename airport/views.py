@@ -1,3 +1,4 @@
+from django.db.models import Count, F
 from rest_framework.filters import SearchFilter
 
 from airport.models import Airport, Route, Airplane, AirplaneType, Crew, Flight, Order, Ticket
@@ -130,7 +131,16 @@ class FlightViewSet(viewsets.ModelViewSet):
         if destination:
             queryset = queryset.filter(route__destination__name__icontains=destination)
 
-        if self.action in ("list", "retrieve"):
+        if self.action == "list":
+            return queryset.select_related(
+                "route__source",
+                "route__destination",
+                "airplane__airplane_type"
+            ).prefetch_related("crew", "tickets").annotate(
+                tickets_available=(F("airplane__rows") * F("airplane__seats_in_row")) - Count("tickets"),
+            )
+
+        if self.action == "retrieve":
             return queryset.select_related(
                 "route__source",
                 "route__destination",
