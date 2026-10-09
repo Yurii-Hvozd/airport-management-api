@@ -1,7 +1,11 @@
+
+
 from django.db.models import Count, F
 from rest_framework.filters import SearchFilter
+from rest_framework.permissions import IsAdminUser, IsAuthenticated
 
 from airport.models import Airport, Route, Airplane, AirplaneType, Crew, Flight, Order, Ticket
+from airport.permissions import IsAdminOrReadOnly
 from airport.serializers import AirportSerializer, RouteSerializer, AirplaneSerializer, AirplaneTypeSerializer, \
     CrewSerializer, FlightSerializer, OrderSerializer, TicketSerializer, RouteListSerializer, RouteDetailSerializer, \
     FlightListSerializer, FlightDetailSerializer, AirplaneListSerializer, TicketDetailSerializer, OrderDetailSerializer, \
@@ -11,6 +15,7 @@ from rest_framework import viewsets, mixins
 class AirportViewSet(viewsets.ModelViewSet):
     queryset = Airport.objects.all()
     serializer_class = AirportSerializer
+    permission_classes = (IsAdminOrReadOnly,)
 
     def get_queryset(self):
         queryset = self.queryset
@@ -23,9 +28,11 @@ class AirportViewSet(viewsets.ModelViewSet):
         if closest_big_city:
             queryset = queryset.filter(closest_big_city__icontains=closest_big_city)
         return queryset
+
 class RouteViewSet(viewsets.ModelViewSet):
     queryset = Route.objects.all()
     serializer_class = RouteSerializer
+    permission_classes = (IsAdminOrReadOnly,)
 
     def get_queryset(self):
         queryset = self.queryset
@@ -54,6 +61,7 @@ class RouteViewSet(viewsets.ModelViewSet):
 class AirplaneTypeViewSet(viewsets.ModelViewSet):
     queryset = AirplaneType.objects.all()
     serializer_class = AirplaneTypeSerializer
+    permission_classes = (IsAdminOrReadOnly,)
 
     def get_queryset(self):
         queryset = self.queryset
@@ -69,6 +77,7 @@ class AirplaneTypeViewSet(viewsets.ModelViewSet):
 class AirplaneViewSet(viewsets.ModelViewSet):
     queryset = Airplane.objects.all()
     serializer_class = AirplaneSerializer
+    permission_classes = (IsAdminOrReadOnly,)
 
     def get_queryset(self):
         queryset = self.queryset
@@ -97,13 +106,15 @@ class CrewViewSet(viewsets.ModelViewSet):
     queryset = Crew.objects.all()
     serializer_class = CrewSerializer
 
+    permission_classes = (IsAdminOrReadOnly,)
+
     filter_backends = (SearchFilter,)
     search_fields = ("first_name", "last_name")
 
 
 class FlightViewSet(viewsets.ModelViewSet):
     queryset = Flight.objects.all()
-
+    permission_classes = (IsAdminOrReadOnly, )
     def get_serializer_class(self):
 
         if self.action == "list":
@@ -153,7 +164,7 @@ class FlightViewSet(viewsets.ModelViewSet):
 class OrderViewSet(viewsets.ModelViewSet):
     queryset = Order.objects.all()
     serializer_class = OrderSerializer
-
+    permission_classes = (IsAuthenticated, )
 
     def get_queryset(self):
         queryset = self.queryset.filter(user=self.request.user)
@@ -186,6 +197,7 @@ class TicketViewSet(    mixins.ListModelMixin,
     viewsets.GenericViewSet):
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
+    permission_classes = (IsAuthenticated,)
 
     def get_serializer_class(self):
         if self.action == "list":
