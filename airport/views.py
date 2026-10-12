@@ -1,19 +1,28 @@
-from django.core.serializers import get_serializer
+import rest_framework
 from django.db.models import Count, F
 from rest_framework.decorators import action
 from rest_framework.filters import SearchFilter
-from rest_framework.permissions import IsAdminUser, IsAuthenticated
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiTypes
+from rest_framework import serializers
+from airport import serializers
 from airport.models import Airport, Route, Airplane, AirplaneType, Crew, Flight, Order, Ticket
 from airport.permissions import IsAdminOrReadOnly
 from airport.serializers import AirportSerializer, RouteSerializer, AirplaneSerializer, AirplaneTypeSerializer, \
     CrewSerializer, FlightSerializer, OrderSerializer, TicketSerializer, RouteListSerializer, RouteDetailSerializer, \
     FlightListSerializer, FlightDetailSerializer, AirplaneListSerializer, TicketDetailSerializer, OrderDetailSerializer, \
-    OrderListSerializer, AirplaneImageSerializer
+    OrderListSerializer
 from rest_framework import viewsets, mixins, status
 
-
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter("name", type=OpenApiTypes.STR, description="Filter by airport name (icontains)."),
+            OpenApiParameter("closest_big_city", type=OpenApiTypes.STR, description="Filter by closest big city (icontains).")
+        ]
+    )
+)
 class AirportViewSet(viewsets.ModelViewSet):
     queryset = Airport.objects.all()
     serializer_class = AirportSerializer
@@ -31,6 +40,15 @@ class AirportViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(closest_big_city__icontains=closest_big_city)
         return queryset
 
+
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter("source", type=OpenApiTypes.STR, description="Filter by source airport name (icontains)."),
+            OpenApiParameter("destination", type=OpenApiTypes.STR, description="Filter by destination airport name (icontains).")
+        ]
+    )
+)
 class RouteViewSet(viewsets.ModelViewSet):
     queryset = Route.objects.all()
     serializer_class = RouteSerializer
@@ -60,6 +78,15 @@ class RouteViewSet(viewsets.ModelViewSet):
         return RouteSerializer
 
 
+
+
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter("name", type=OpenApiTypes.STR, description="Filter by airplane type name (icontains).")
+        ]
+    )
+)
 class AirplaneTypeViewSet(viewsets.ModelViewSet):
     queryset = AirplaneType.objects.all()
     serializer_class = AirplaneTypeSerializer
@@ -76,6 +103,14 @@ class AirplaneTypeViewSet(viewsets.ModelViewSet):
         return queryset
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter("name", type=OpenApiTypes.STR, description="Filter by airplane name (icontains)."),
+            OpenApiParameter("airplane_type", type=OpenApiTypes.STR, description="Filter by airplane type name (icontains).")
+        ]
+    )
+)
 class AirplaneViewSet(viewsets.ModelViewSet):
     queryset = Airplane.objects.all()
     serializer_class = AirplaneSerializer
@@ -102,7 +137,7 @@ class AirplaneViewSet(viewsets.ModelViewSet):
         if self.action in ("list", "retrieve"):
             return AirplaneListSerializer
         elif self.action == "upload_image":
-            return AirplaneImageSerializer
+            return serializers.AirplaneImageSerializer
         return AirplaneSerializer
 
 
@@ -132,6 +167,16 @@ class CrewViewSet(viewsets.ModelViewSet):
     search_fields = ("first_name", "last_name")
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter("source", type=OpenApiTypes.STR, description="Filter flights by departure airport name (icontains)."),
+            OpenApiParameter("destination", type=OpenApiTypes.STR, description="Filter flights by destination airport name (icontains)."),
+            OpenApiParameter("airplane_name", type=OpenApiTypes.STR, description="Filter flights by airplane name (icontains)."),
+            OpenApiParameter("departure_time", type=OpenApiTypes.DATE, description="Filter flights by departure date (format: YYYY-MM-DD).")
+        ]
+    )
+)
 class FlightViewSet(viewsets.ModelViewSet):
     queryset = Flight.objects.all()
     permission_classes = (IsAdminOrReadOnly, )
@@ -181,6 +226,14 @@ class FlightViewSet(viewsets.ModelViewSet):
 
         return queryset
 
+
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter("date", type=OpenApiTypes.DATE, description="Filter orders by creation date (format: YYYY-MM-DD).")
+        ]
+    )
+)
 class OrderViewSet(viewsets.ModelViewSet):
     queryset = Order.objects.all()
     serializer_class = OrderSerializer
