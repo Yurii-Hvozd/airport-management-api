@@ -1,3 +1,7 @@
+import pathlib
+import uuid
+
+from django.template.defaultfilters import slugify
 from django.utils import timezone
 from datetime import timedelta
 from django.core.validators import MinValueValidator
@@ -43,11 +47,20 @@ class AirplaneType(models.Model):
         return self.name
 
 
+def bus_image_path(instance, filename) -> pathlib.Path:
+    suffix = pathlib.Path(filename).suffix
+    airplane_name = instance.name
+    safe_info = slugify(airplane_name)
+    new_filename = f"{safe_info}-{uuid.uuid4()}{suffix}"
+    return pathlib.Path("upload/airplane/") / pathlib.Path(new_filename)
+
+
 class Airplane(models.Model):
     name = models.CharField(max_length=200)
     rows = models.PositiveIntegerField(validators=[MinValueValidator(1)])
     seats_in_row = models.PositiveIntegerField(validators=[MinValueValidator(1)])
     airplane_type = models.ForeignKey(AirplaneType, on_delete=models.CASCADE)
+    image = models.ImageField(upload_to=bus_image_path, null=True, blank=True)
 
     @property
     def capacity(self):

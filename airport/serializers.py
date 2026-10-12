@@ -10,6 +10,12 @@ from airport.models import Airport, Route, AirplaneType, Airplane, Crew, Flight,
 
 
 
+class AirplaneImageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Airplane
+        fields = ("id", "image")
+
+
 class AirportSerializer(serializers.ModelSerializer):
     class Meta:
         model = Airport
@@ -75,7 +81,7 @@ class AirplaneSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Airplane
-        fields = ("id", "name", "rows", "seats_in_row", "airplane_type", "capacity")
+        fields = ("id", "name", "rows", "seats_in_row", "airplane_type", "capacity", "image")
         read_only_fields = ("capacity",)
 
 class AirplaneListSerializer(serializers.ModelSerializer):
@@ -83,7 +89,7 @@ class AirplaneListSerializer(serializers.ModelSerializer):
     airplane_type = serializers.SlugRelatedField(read_only=True, slug_field="name")
     class Meta:
         model = Airplane
-        fields = ("id", "name", "rows", "seats_in_row", "airplane_type", "capacity")
+        fields = ("id", "name", "rows", "seats_in_row", "airplane_type", "capacity", "image")
 
 
 
