@@ -7,3 +7,4 @@ ENV/
 *.py[cod]
 *$py.class
 .airport_test_data.json
+media/
