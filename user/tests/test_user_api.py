@@ -3,26 +3,25 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-
 CREATE_USER_URL = reverse("user:create")
 MANAGE_USER_URL = reverse("user:manage")
 
 
 class PublicUserApiTests(APITestCase):
-
-
     def setUp(self):
         self.user_data = {
             "email": "test@example.com",
             "password": "password123",
-            "username": "testuser"
+            "username": "testuser",
         }
 
     def test_create_user_success(self):
         response = self.client.post(CREATE_USER_URL, self.user_data)
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        user_exists = get_user_model().objects.filter(email=self.user_data["email"]).exists()
+        user_exists = (
+            get_user_model().objects.filter(email=self.user_data["email"]).exists()
+        )
         self.assertTrue(user_exists)
 
     def test_anonymous_cannot_access_manage_profile(self):
@@ -31,7 +30,6 @@ class PublicUserApiTests(APITestCase):
 
 
 class PrivateUserApiTests(APITestCase):
-
     def setUp(self):
         self.user = get_user_model().objects.create_user(
             email="user@example.com",

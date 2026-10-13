@@ -5,39 +5,46 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('airport', '0002_initial'),
+        ("airport", "0002_initial"),
     ]
 
     operations = [
         migrations.AlterModelOptions(
-            name='order',
-            options={'ordering': ['-id']},
+            name="order",
+            options={"ordering": ["-id"]},
         ),
         migrations.AlterField(
-            model_name='airplane',
-            name='rows',
-            field=models.PositiveIntegerField(validators=[django.core.validators.MinValueValidator(1)]),
+            model_name="airplane",
+            name="rows",
+            field=models.PositiveIntegerField(
+                validators=[django.core.validators.MinValueValidator(1)]
+            ),
         ),
         migrations.AlterField(
-            model_name='airplane',
-            name='seats_in_row',
-            field=models.PositiveIntegerField(validators=[django.core.validators.MinValueValidator(1)]),
+            model_name="airplane",
+            name="seats_in_row",
+            field=models.PositiveIntegerField(
+                validators=[django.core.validators.MinValueValidator(1)]
+            ),
         ),
         migrations.AlterField(
-            model_name='route',
-            name='distance',
+            model_name="route",
+            name="distance",
             field=models.PositiveIntegerField(),
         ),
         migrations.AlterField(
-            model_name='ticket',
-            name='row',
-            field=models.IntegerField(validators=[django.core.validators.MinValueValidator(1)]),
+            model_name="ticket",
+            name="row",
+            field=models.IntegerField(
+                validators=[django.core.validators.MinValueValidator(1)]
+            ),
         ),
         migrations.AlterField(
-            model_name='ticket',
-            name='seat',
-            field=models.IntegerField(validators=[django.core.validators.MinValueValidator(1)]),
+            model_name="ticket",
+            name="seat",
+            field=models.IntegerField(
+                validators=[django.core.validators.MinValueValidator(1)]
+            ),
         ),
     ]
