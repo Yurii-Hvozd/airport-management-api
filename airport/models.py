@@ -6,6 +6,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
+from django.db.models import Q, F
 from django.template.defaultfilters import slugify
 from django.utils import timezone
 
@@ -17,6 +18,12 @@ class Airport(models.Model):
     def __str__(self):
         return f"{self.name} ({self.closest_big_city})"
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["name", "closest_big_city"], name="unique_airport_name_city"
+            )
+        ]
 
 class Route(models.Model):
     source = models.ForeignKey(
@@ -26,6 +33,19 @@ class Route(models.Model):
         Airport, on_delete=models.CASCADE, related_name="routes_to"
     )
     distance = models.PositiveIntegerField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["source", "destination"], name="unique_route_source_destination"
+            ),
+            models.CheckConstraint(
+                condition=~Q(source=F("destination")), name="route_source_ne_destination"
+            ),
+            models.CheckConstraint(
+                condition=Q(distance__gt=0), name="route_distance_positive"
+            ),
+        ]
 
     def __str__(self):
         return f"{self.source.name} -> {self.destination.name}"
@@ -44,7 +64,7 @@ class Route(models.Model):
 
 
 class AirplaneType(models.Model):
-    name = models.CharField(max_length=200)
+    name = models.CharField(max_length=200, unique=True)
 
     def __str__(self):
         return self.name
@@ -59,7 +79,7 @@ def bus_image_path(instance, filename) -> pathlib.Path:
 
 
 class Airplane(models.Model):
-    name = models.CharField(max_length=200)
+    name = models.CharField(max_length=200, unique=True)
     rows = models.PositiveIntegerField(validators=[MinValueValidator(1)])
     seats_in_row = models.PositiveIntegerField(validators=[MinValueValidator(1)])
     airplane_type = models.ForeignKey(AirplaneType, on_delete=models.CASCADE)
@@ -151,12 +171,21 @@ class Order(models.Model):
 class Ticket(models.Model):
     row = models.IntegerField(validators=[MinValueValidator(1)])
     seat = models.IntegerField(validators=[MinValueValidator(1)])
-    flight = models.ForeignKey(Flight, on_delete=models.CASCADE, related_name="tickets")
-    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="tickets")
+    flight = models.ForeignKey(
+        "Flight", on_delete=models.CASCADE, related_name="tickets"
+    )
+    order = models.ForeignKey(
+        "Order", on_delete=models.CASCADE, related_name="tickets"
+    )
 
     class Meta:
-        unique_together = ("flight", "row", "seat")
         ordering = ["row", "seat"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["flight", "row", "seat"],
+                name="unique_ticket_seat_per_flight",
+            )
+        ]
 
     @staticmethod
     def validate_ticket(row, seat, airplane, error_to_raise):
@@ -166,29 +195,45 @@ class Ticket(models.Model):
             )
         if not (1 <= seat <= airplane.seats_in_row):
             raise error_to_raise(
-                {"seat": f"Seat number must be in range [1, {airplane.seats_in_row}]."}
+                {
+                    "seat": f"Seat number must be in range [1, {airplane.seats_in_row}]."
+                }
             )
 
     def clean(self):
         super().clean()
 
-        if self.flight and hasattr(self.flight, "airplane"):
-            airplane = self.flight.airplane
+        if not self.flight_id:
+            return
 
-            Ticket.validate_ticket(self.row, self.seat, airplane, ValidationError)
+        airplane = self.flight.airplane
 
-            existing_tickets_count = self.flight.tickets.exclude(pk=self.pk).count()
-            if existing_tickets_count >= airplane.capacity:
-                raise ValidationError(
-                    {"flight": "All seats for this flight are already sold out."}
-                )
+        Ticket.validate_ticket(self.row, self.seat, airplane, ValidationError)
 
-            if self.flight.departure_time < timezone.now():
-                raise ValidationError(
-                    {
-                        "flight": "Cannot purchase a ticket for a flight that has already departed."
-                    }
-                )
+        taken = (
+            Ticket.objects.filter(
+                flight_id=self.flight_id, row=self.row, seat=self.seat
+            )
+            .exclude(pk=self.pk)
+            .exists()
+        )
+        if taken:
+            raise ValidationError(
+                {"seat": f"Seat {self.seat} in row {self.row} is already taken."}
+            )
+
+        existing_tickets_count = self.flight.tickets.exclude(pk=self.pk).count()
+        if existing_tickets_count >= airplane.capacity:
+            raise ValidationError(
+                {"flight": "All seats for this flight are already sold out."}
+            )
+
+        if self.flight.departure_time < timezone.now():
+            raise ValidationError(
+                {
+                    "flight": "Cannot purchase a ticket for a flight that has already departed."
+                }
+            )
 
     def save(self, *args, **kwargs):
         self.full_clean()

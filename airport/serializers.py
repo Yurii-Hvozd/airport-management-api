@@ -1,8 +1,9 @@
 from copy import copy
 from datetime import timedelta
-
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import IntegrityError, transaction
+from rest_framework.serializers import as_serializer_error
 from django.core.exceptions import ValidationError
-from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.validators import UniqueTogetherValidator
@@ -213,7 +214,7 @@ class FlightListSerializer(serializers.ModelSerializer):
     airplane_name = serializers.CharField(source="airplane.name", read_only=True)
     crew = serializers.StringRelatedField(many=True, read_only=True)
     tickets_total = serializers.IntegerField(source="airplane.capacity")
-    tickets_available = serializers.IntegerField(read_only=True)
+    tickets_available = serializers.SerializerMethodField()
 
     class Meta:
         model = Flight
@@ -229,6 +230,11 @@ class FlightListSerializer(serializers.ModelSerializer):
             "crew",
         )
 
+    def get_tickets_available(self, obj):
+        annotated = getattr(obj, "tickets_available", None)
+        if annotated is not None:
+            return annotated
+        return obj.airplane.capacity - len(obj.tickets.all())
 
 class TicketSeatsSerializer(serializers.ModelSerializer):
     class Meta:
@@ -350,16 +356,43 @@ class OrderSerializer(serializers.ModelSerializer):
         model = Order
         fields = ("id", "passenger_name", "created_at", "tickets")
 
-    @transaction.atomic
-    def create(self, validated_data):
-        tickets_data = validated_data.pop("tickets", [])
-        order = Order.objects.create(**validated_data)
-        try:
-            for ticket_data in tickets_data:
-                Ticket.objects.create(order=order, **ticket_data)
-        except ValidationError as e:
-            raise serializers.ValidationError(e.message_dict)
+    def validate_tickets(self, tickets):
+        seen = set()
+        for t in tickets:
+            key = (t["flight"].pk, t["row"], t["seat"])
+            if key in seen:
+                raise serializers.ValidationError(
+                    f"Duplicate seat in request: flight {key[0]}, row {key[1]}, seat {key[2]}."
+                )
+            seen.add(key)
+        return tickets
 
+    def create(self, validated_data):
+        tickets_data = validated_data.pop("tickets")
+        flight_ids = sorted({t["flight"].pk for t in tickets_data})
+
+        try:
+            with transaction.atomic():
+                locked = {
+                    f.pk: f
+                    for f in Flight.objects.select_for_update()
+                    .filter(pk__in=flight_ids)
+                    .order_by("pk")
+                }
+                order = Order.objects.create(**validated_data)
+                for data in tickets_data:
+                    Ticket.objects.create(
+                        order=order,
+                        row=data["row"],
+                        seat=data["seat"],
+                        flight=locked[data["flight"].pk],
+                    )
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(as_serializer_error(exc))
+        except IntegrityError:
+            raise serializers.ValidationError(
+                {"tickets": "One of the selected seats has just been booked. Choose another seat."}
+            )
         return order
 
 

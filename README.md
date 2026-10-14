@@ -11,7 +11,7 @@ Manage airports, routes, airplanes, crews and flights, and let authenticated use
 - JWT authentication (`djangorestframework-simplejwt`)
 - API documentation (`drf-spectacular`: Swagger UI and ReDoc)
 - Docker and Docker Compose
-- Pillow for image uploads, `django-debug-toolbar` for development
+- Pillow for image uploads, `django-debug-toolbar` (enabled only when `DEBUG=True`)
 
 ## Run with Docker (recommended)
 
@@ -24,14 +24,15 @@ Docker and Docker Compose must be installed.
    cd airport-management-api
    ```
 
-2. Create the `.env` file from the sample:
+2. Create the `.env` file from the sample (the real `.env` is git-ignored and must never be committed):
 
    ```shell
    cp .env.sample .env
    ```
 
    Open `.env` and set your own `SECRET_KEY` and `POSTGRES_PASSWORD`.
-   Keep `POSTGRES_HOST=db` for Docker.
+   Keep `POSTGRES_HOST=db` for Docker. For local development set `DEBUG=True`.
+   
 
 3. Build and start the containers (migrations are applied automatically on startup):
 
@@ -67,6 +68,28 @@ Docker and Docker Compose must be installed.
    - Admin panel: http://localhost:8001/admin/
 
 To stop the project press `Ctrl+C` or run `docker-compose down`.
+
+## Environment variables
+
+All settings are read from `.env` (copy it from `.env.sample`).
+
+| Variable            | Description                                                 | Example                    |
+|---------------------|-------------------------------------------------------------|----------------------------|
+| `SECRET_KEY`        | Django secret key. Generate a new one for every environment | `...`                      |
+| `DEBUG`             | `True` only for local development. **Default is `False`**   | `True`                     |
+| `ALLOWED_HOSTS`     | Comma-separated host names (required when `DEBUG=False`)    | `localhost,127.0.0.1`      |
+| `POSTGRES_DB`       | Database name                                               | `airport`                  |
+| `POSTGRES_USER`     | Database user                                               | `airport`                  |
+| `POSTGRES_PASSWORD` | Database password                                           | `your_password_here`       |
+| `POSTGRES_HOST`     | Database host (`db` in Docker)                              | `db`                       |
+| `POSTGRES_PORT`     | Database port                                               | `5432`                     |
+| `PGDATA`            | PostgreSQL data directory (Docker)                          | `/var/lib/postgresql/data` |
+
+Notes:
+
+- `django-debug-toolbar` is installed only when `DEBUG=True`, so it is never exposed in production.
+- With `DEBUG=False` Django does not serve `/media/` files. In production serve them with a web server (nginx) or object storage.
+- If a real `.env` was ever committed, rotate `SECRET_KEY` and the database password.
 
 ## Getting access
 
@@ -160,8 +183,12 @@ Each resource supports the standard `GET` (list), `GET /{id}/` (detail), `POST`,
 }
 ```
 
-The order is created for the current user. If any ticket is invalid (seat taken, flight already departed, seat out of range),
-the whole order is rejected and nothing is saved.
+The order is created for the current user. If any ticket is invalid (seat taken, the same seat repeated in the request,
+flight already departed, seat out of range, flight sold out), the API returns `400 Bad Request` with a description of the
+problem, the whole order is rejected and nothing is saved.
+
+Booking is safe under concurrent requests: if two users try to book the same seat at the same time, exactly one
+order is created (`201`) and the other receives `400`.
 
 ## Filtering and search
 
@@ -185,9 +212,15 @@ GET /api/airport/flights/?source=boryspil&destination=barcelona&departure_time=2
 
 ## Business rules and validation
 
+**Uniqueness (enforced by database constraints)**
+- Airports are unique by name and closest big city
+- Only one route can exist for the same source and destination airports
+- Airplane type names and airplane names are unique
+
 **Routes**
 - Source and destination airports must be different
 - Distance must be greater than 0
+- Only one route per source/destination pair
 
 **Flights**
 - Departure time cannot be in the past
@@ -197,9 +230,11 @@ GET /api/airport/flights/?source=boryspil&destination=barcelona&departure_time=2
 
 **Tickets and orders**
 - Row and seat must exist on the airplane (`1..rows`, `1..seats_in_row`)
-- A seat on a flight can be sold only once
+- A seat on a flight can be sold only once, also when two users book it simultaneously (the flight row is locked during booking)
+- The same seat cannot appear twice in one order request
 - Tickets cannot be bought when the flight is sold out or has already departed
 - An order with several tickets is created atomically: all tickets or none
+- All validation problems are returned as `400` responses with a field-level error message, never as a `500`
 - Users can see only their own orders and tickets
 
 ## Features
@@ -220,10 +255,12 @@ GET /api/airport/flights/?source=boryspil&destination=barcelona&departure_time=2
 - Overlap protection for airplanes and crews, so one plane or person cannot be in two places at once
 
 **Flights and booking**
-- Flight list with route names, airplane, crew, total and available tickets (calculated in the database)
+- Flight list with route names, airplane, crew, total and available tickets (calculated in the database; the same
+  value is also returned inside order and ticket details)
 - Flight detail with the full route, airplane, crew and list of taken seats, so a client can draw a seat map
 - Booking several tickets in one order
-- Seat range, duplicate seat and sold-out checks
+- Seat range, duplicate seat (also inside one request) and sold-out checks
+- Concurrency-safe booking with a database transaction and row locking (`select_for_update`)
 - Personal order history with ticket and flight details, filterable by date
 - Personal read-only ticket list
 
@@ -237,7 +274,8 @@ GET /api/airport/flights/?source=boryspil&destination=barcelona&departure_time=2
 - Interactive API documentation at `/api/schema/swagger-ui/` and `/api/schema/redoc/`, with documented filter parameters
 - Django admin panel with tickets editable inline inside orders
 - Query optimization with `select_related` and `prefetch_related`
-- Automated tests for the airport and user APIs
+- Automated API and model tests for the airport and user apps, including duplicate seats, sold-out and past flights,
+  crew scheduling conflicts, write-permission checks for every endpoint and a concurrent booking test
 - Dockerized setup with PostgreSQL, persistent database and media volumes
 - Sample data fixture for quick start
 - Code style tooling: flake8, black, ruff
@@ -258,6 +296,8 @@ python manage.py test
 
 The PostgreSQL user must be allowed to create databases, because Django creates a temporary test database.
 
+The concurrent booking test uses several database connections and requires PostgreSQL (it is not meaningful on SQLite).
+
 ## Project structure
 
 ```
@@ -276,6 +316,6 @@ airport-management-api/
 ├── docker-compose.yaml
 ├── Dockerfile
 ├── requirements.txt
-├── .env.sample
+├── .env.sample              # template for .env (the real .env is git-ignored)
 └── manage.py
 ```

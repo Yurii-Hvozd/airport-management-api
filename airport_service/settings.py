@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
 import os
+import sys
 from datetime import timedelta
 from pathlib import Path
 
@@ -25,9 +26,13 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.environ["SECRET_KEY"]
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get("DJANGO_DEBUG", "False").lower() in ("1", "true", "yes")
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.environ.get("DJANGO_ALLOWED_HOSTS", "").split(",")
+    if host.strip()
+]
 
 
 # Application definition
@@ -44,7 +49,6 @@ INSTALLED_APPS = [
     "rest_framework",
     "user",
     "airport",
-    "debug_toolbar",
     "drf_spectacular",
 ]
 
@@ -52,12 +56,21 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
-    "debug_toolbar.middleware.DebugToolbarMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
+if DEBUG and "test" not in sys.argv:
+    if "debug_toolbar" not in INSTALLED_APPS:
+        INSTALLED_APPS.append("debug_toolbar")
+
+    try:
+        common_middleware_index = MIDDLEWARE.index("django.middleware.common.CommonMiddleware")
+        MIDDLEWARE.insert(common_middleware_index + 1, "debug_toolbar.middleware.DebugToolbarMiddleware")
+    except ValueError:
+        MIDDLEWARE.append("debug_toolbar.middleware.DebugToolbarMiddleware")
 
 ROOT_URLCONF = "airport_service.urls"
 
@@ -179,4 +192,7 @@ SPECTACULAR_SETTINGS = {
         "defaultModelRendering": "model",
         "defaultModelExpandDepth": 2,
     },
+}
+DEBUG_TOOLBAR_CONFIG = {
+    "SHOW_TOOLBAR_CALLBACK": lambda request: True,
 }
